@@ -1,5 +1,6 @@
 package com.example.russp.colorwheel;
 
+import android.graphics.Color;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
@@ -16,7 +17,7 @@ public class MainActivity extends AppCompatActivity implements ColorWheelDialog.
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new ColorWheelDialog(MainActivity.this, MainActivity.this, -1).show();
+                new ColorWheelDialog(MainActivity.this, MainActivity.this, Color.WHITE).show();
             }
         });
 
