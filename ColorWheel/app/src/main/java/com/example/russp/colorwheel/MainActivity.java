@@ -16,7 +16,7 @@ public class MainActivity extends AppCompatActivity implements ColorWheelDialog.
         button.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                new ColorWheelDialog(MainActivity.this, MainActivity.this, 0).show();
+                new ColorWheelDialog(MainActivity.this, MainActivity.this, -1).show();
             }
         });
 

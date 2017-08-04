@@ -57,39 +57,67 @@ public class ColorWheelDialog extends Dialog {
 
     private static class ColorWheelView extends View
     {
-        static Context context;
         static int radius = 360;
         static Paint selectedColor;
+        static Paint wheelColor;
+        static Paint crossHairColor;
         static int selectedColorInt;
+        static float displayR = radius / 4;
+        static float displayX = (displayR * 1.25f) - (radius * 1.25f);
+        static float displayY = (displayR * 1.25f) - (radius * 1.25f);
+        static float crossHairX = 0;
+        static float crossHairY = 0;
+
         private OnColorChangedListener listener;
 
         ColorWheelView(Context context, OnColorChangedListener listener, int color){
             super(context);
             this.listener = listener;
             selectedColor = new Paint(Paint.ANTI_ALIAS_FLAG);
-            selectedColor.setColor(0);
+            wheelColor = new Paint(Paint.ANTI_ALIAS_FLAG);
+            crossHairColor = new Paint(Paint.ANTI_ALIAS_FLAG);
+            selectedColor.setColor(color);
         }
 
         @Override
         protected void onDraw(Canvas canvas){
-            canvas.translate(radius, radius);
+            canvas.translate(radius * 1.25f, radius * 1.25f);
             drawCircle(canvas);
+            drawCrossHair(canvas);
             selectedColor.setColor(selectedColorInt);
-            canvas.drawCircle(canvas.getWidth() - radius - 100, canvas.getHeight() - radius - 100, 75, selectedColor);
+            canvas.drawCircle(displayX, displayY, displayR, selectedColor);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event){
-            float x = event.getX() - radius;
-            float y = event.getY() - radius;
+            float x = event.getX() - (radius * 1.25f);
+            float y = event.getY() - (radius * 1.25f);
             float distance = getDistance(x, y);
+            float hue = getAngle(x, y);
 
-            int hue = getAngle(x, y);
-            selectedColor.setStyle(Paint.Style.FILL);
-            selectedColor.setStrokeWidth(5);
-            selectedColor.setColor(Color.BLACK);
-//            selectedColorInt = getColor(hue, distance / radius, 1);
-            invalidate();
+
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    if(distance <= radius) {
+                        selectedColor.setStyle(Paint.Style.FILL);
+                        selectedColor.setStrokeWidth(5);
+                        selectedColorInt = getColor(hue, distance / radius, 1);
+                        invalidate();
+                    }
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if(distance <= radius) {
+                        selectedColor.setStyle(Paint.Style.FILL);
+                        selectedColor.setStrokeWidth(5);
+                        selectedColorInt = getColor(hue, distance / radius, 1);
+                        invalidate();
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                    break;
+            }
+            crossHairX = x;
+            crossHairY = y;
             return true;
         }
 
@@ -98,11 +126,17 @@ public class ColorWheelDialog extends Dialog {
             setMeasuredDimension((int)(radius * 2.5), (int)(radius * 2.5));
         }
 
+        /**
+         * Draws the wheel of colors and the ring around it
+         *
+         * @param canvas to draw on
+         */
         public void drawCircle(Canvas canvas) {
-            Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            wheelColor.setStrokeWidth(10);
+            wheelColor.setStyle(Paint.Style.FILL_AND_STROKE);
 
-            for (int x = -radius; x < radius; x++) {
-                for (int y = -radius; y < radius; y++) {
+            for (int x = -radius; x < radius; x+=6) {
+                for (int y = -radius; y < radius; y+=6) {
                     // The distance from the center
                     float distance = getDistance(x, y);
 
@@ -110,18 +144,39 @@ public class ColorWheelDialog extends Dialog {
                     if(distance > radius)
                         continue;
 
-                    int hue = getAngle(x, y);
+                    float hue = getAngle(x, y);
                     double saturation = distance / radius;
 
-                    paint.setColor(getColor(hue, (float)saturation, 1));
-                    paint.setStrokeWidth(20);
-                    paint.setStyle(Paint.Style.FILL);
-
-//                    canvas.drawLine(0, 0, x, y, paint);
-                    canvas.drawPoint(x, y, paint);
-
+                    wheelColor.setColor(getColor(hue, (float)saturation, 1));
+                    canvas.drawRect(x, y, x + 6, y + 6, wheelColor);
                 }
             }
+
+            wheelColor.setStyle(Paint.Style.STROKE);
+            wheelColor.setColor(selectedColorInt);
+            wheelColor.setStrokeWidth(30);
+            canvas.drawCircle(0, 0, radius, wheelColor);
+        }
+
+        /**
+         * Draws a cross hair at the location of the current color
+         *
+         * @param canvas to draw on
+         */
+        public void drawCrossHair(Canvas canvas){
+            crossHairColor.setColor(Color.LTGRAY);
+            crossHairColor.setStyle(Paint.Style.FILL);
+            crossHairColor.setStrokeWidth(5);
+
+            // Draw lines for the cross hair
+            canvas.drawLine(crossHairX, crossHairY, crossHairX + 20, crossHairY, crossHairColor);
+            canvas.drawLine(crossHairX, crossHairY, crossHairX - 20, crossHairY, crossHairColor);
+            canvas.drawLine(crossHairX, crossHairY, crossHairX, crossHairY + 20, crossHairColor);
+            canvas.drawLine(crossHairX, crossHairY, crossHairX, crossHairY - 20, crossHairColor);
+
+            // Draw the ring around the cross hair
+            crossHairColor.setStyle(Paint.Style.STROKE);
+            canvas.drawCircle(crossHairX, crossHairY, 10, crossHairColor);
         }
 
         /**
@@ -144,9 +199,9 @@ public class ColorWheelDialog extends Dialog {
          *
          * @return angle of a given point in degrees
          */
-        public int getAngle(float x, float y){
+        public float getAngle(float x, float y){
             double angle = Math.atan2(y, x);
-            return (int)(((angle + Math.PI) / (2 * Math.PI)) * 360);
+            return (float) (((angle + Math.PI) / (2 * Math.PI)) * 360);
         }
 
         /**
@@ -158,53 +213,52 @@ public class ColorWheelDialog extends Dialog {
          * @param value      always 1 for now
          * @return the decimal value of a color
          */
-        public int getColor(int hue, float saturation, float value) {
+        public int getColor(float hue, float saturation, float value) {
             // Calculate the values to assign
             float chroma = value * saturation;
 
             // Get hue prime
-            hue = Math.abs(hue / 60);
-            float x = chroma * (1 - Math.abs((hue % 2) - 1));
+            float hue1 = Math.abs(hue / 60);
+            float x = chroma * (1 - Math.abs((hue1 % 2) - 1));
 
             // Set all to 0 (black) by default
             float r1 = 0;
             float g1 = 0;
             float b1 = 0;
 
-            if (hue >= 0 && hue <= 1) {
+            if (hue1 >= 0 && hue1 <= 1) {
                 r1 = chroma;
                 g1 = x;
                 b1 = 0;
-            } else if (hue >= 1 && hue <= 2) {
+            } else if (hue1 >= 1 && hue1 <= 2) {
                 r1 = x;
                 g1 = chroma;
                 b1 = 0;
-            } else if (hue >= 2 && hue <= 3) {
+            } else if (hue1 >= 2 && hue1 <= 3) {
                 r1 = 0;
                 g1 = chroma;
                 b1 = x;
-            } else if (hue >= 3 && hue <= 4) {
+            } else if (hue1 >= 3 && hue1 <= 4) {
                 r1 = 0;
                 g1 = x;
                 b1 = chroma;
-            } else if (hue >= 4 && hue <= 5) {
+            } else if (hue1 >= 4 && hue1 <= 5) {
                 r1 = x;
                 g1 = 0;
                 b1 = chroma;
-            } else if (hue >= 5 && hue <= 6) {
+            } else if (hue1 >= 5 && hue1 <= 6) {
                 r1 = chroma;
                 g1 = 0;
                 b1 = x;
             }
 
             float m = value - chroma;
-
             // Calculate RGB values and convert from decimals
-            int red = (int) (r1 + m) * 255;
-            int green = (int) (g1 + m) * 255;
-            int blue = (int) (b1 + m) * 255;
+            float red = r1 + m;
+            float green = g1 + m;
+            float blue = b1 + m;
 
-            return Color.argb(1, red, green, blue);
+            return Color.argb(0xFF, (int)(red * 255), (int)(green * 255), (int)(blue * 255));
         }
     }
 }
