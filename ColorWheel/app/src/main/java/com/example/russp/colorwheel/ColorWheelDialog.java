@@ -4,12 +4,17 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.app.DialogFragment;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.preference.Preference;
+import android.util.DisplayMetrics;
+import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -20,6 +25,7 @@ import android.app.DialogFragment;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.ProgressBar;
 
 /**
@@ -34,6 +40,10 @@ public class ColorWheelDialog extends Dialog {
 
     private OnColorChangedListener listener;
     private int initialColor;
+    private static final String COLOR_DIALOG_PREF_NAME = "COLOR_DIALOG_PREF_NAME";
+    private static final String SAVED_RECENT_COLOR_LENGTH = "SAVED_RECENT_COLOR_LENGTH";
+    private static final String SAVED_RECENT_COLOR_RETRIEVE_ = "SAVED_RECENT_COLOR_RETRIEVE_";
+
 
     public ColorWheelDialog(Context context, OnColorChangedListener listener, int initialColor){
         super(context);
@@ -61,14 +71,15 @@ public class ColorWheelDialog extends Dialog {
         static Paint wheelColor;
         static Paint crossHairColor;
         static Paint recentColor;
-        static final int radius = 360;
-        static int[] recentColors = new int[]{Color.BLACK, -3355444, -3355444, -3355444, -3355444, -3355444};
+        static int radius = 360;
         static int selectedColorInt;
-        static float displayR = radius / 4;
-        static float displayX = (displayR * 1.25f) - (radius * 1.25f);
-        static float displayY = (displayR * 1.25f) - (radius * 1.25f);
+        static int[] recentColors;
         static float crossHairX = 0;
         static float crossHairY = 0;
+        static float canvasTranslation = radius * 1.375f;
+        static float displayR = radius / 4;
+        static float displayX = (displayR * 1.25f) - canvasTranslation;
+        static float displayY = (displayR * 1.25f) - canvasTranslation;
 
         private OnColorChangedListener listener;
 
@@ -83,24 +94,41 @@ public class ColorWheelDialog extends Dialog {
 
             selectedColorInt = color;
             selectedColor.setColor(selectedColorInt);
+            selectedColor.setTextAlign(Paint.Align.CENTER);
+            selectedColor.setTypeface(Typeface.DEFAULT_BOLD);
+            selectedColor.setTextSize(50);
+
+            SharedPreferences preferences = context.getSharedPreferences(COLOR_DIALOG_PREF_NAME, Context.MODE_PRIVATE);
+            int arrLength = preferences.getInt(SAVED_RECENT_COLOR_LENGTH, 6);
+            recentColors = new int[arrLength];
+
+            for(int i = 0; i < arrLength; i++){
+                recentColors[i] = preferences.getInt(SAVED_RECENT_COLOR_RETRIEVE_ + i, Color.LTGRAY);
+            }
+
         }
 
         @Override
         protected void onDraw(Canvas canvas){
-            canvas.translate(radius * 1.25f, radius * 1.25f);
+            canvas.translate(canvasTranslation, canvasTranslation);
 
             drawCircle(canvas);
             drawCrossHair(canvas);
-//            drawRecentColors(canvas);
+            drawRecentColors(canvas);
 
             selectedColor.setColor(selectedColorInt);
             canvas.drawCircle(displayX, displayY, displayR, selectedColor);
+
+            // Get the opposite color to show the "Save" text easily
+            int neg = (0x00FFFFFF - selectedColor.getColor()) | 0xFF000000;
+            selectedColor.setColor(neg);
+            canvas.drawText("Save", displayX, displayY + (selectedColor.getTextSize() / 4), selectedColor);
         }
 
         @Override
         public boolean onTouchEvent(MotionEvent event){
-            float x = event.getX() - (radius * 1.25f);
-            float y = event.getY() - (radius * 1.25f);
+            float x = event.getX() - canvasTranslation;
+            float y = event.getY() - canvasTranslation;
             float distance = getDistance(x, y);
             float hue = getAngle(x, y);
 
@@ -123,16 +151,69 @@ public class ColorWheelDialog extends Dialog {
                     }
                     break;
                 case MotionEvent.ACTION_UP:
+                    float intersected = (float)Math.sqrt(((x - displayX) * (x - displayX)) + ((y - displayY) * (y - displayY)));
+                    if(intersected < displayR){
+                        listener.colorChanged(selectedColorInt);
+                        invalidate();
+                    }
+                    else if(distance <= radius){
+                        for(int i = recentColors.length - 1; i > 0; i--){
+                            recentColors[i] = recentColors[i - 1];
+                        }
+                        recentColors[0] = selectedColorInt;
+                        saveRecentColors();
+                    }
+                    else{
+                        int width = radius / 6;
+                        int height = radius / 6;
+                        int sqx = -radius;
+                        int sqy = radius + height;
+
+                        for(int i = 0; i < recentColors.length; i++){
+                            sqx = -radius + (width * 2 * i);
+                            if(x >= sqx && x <= sqx + width && y >= sqy && y <= sqy + height){
+                                selectedColorInt = recentColors[i];
+                                float[] hsv = new float[3];
+                                Color.colorToHSV(selectedColorInt, hsv);
+                                setCrossHair(hsv);
+                                invalidate();
+                                return true;
+                            }
+                        }
+                    }
                     break;
             }
-            crossHairX = x;
-            crossHairY = y;
+
+            if(distance <= radius) {
+                crossHairX = x;
+                crossHairY = y;
+            }
             return true;
         }
 
         @Override
         protected void onMeasure(int widthMeasureSpec, int heightMesaureSpect){
-            setMeasuredDimension((int)(radius * 2.5), (int)(radius * 2.5));
+            setMeasuredDimension((int)(radius * 2.75f), (int)(radius * 2.75));
+        }
+
+        /**
+         * Used to position the cross hair when the set color is given
+         * from outside of the circle (recent color or on start of dialog)
+         *
+         * @param hsv (hue, saturation, value) of the color
+         */
+        private void setCrossHair(float[] hsv){
+            float hue = hsv[0];
+            float saturation = hsv[1];
+            float distance = saturation * radius;
+
+            // Convert to radians from degrees
+            hue = hue * (float)Math.PI / 180f;
+
+            // Make sure to negate the distance because the wheel is rotated 180 degrees
+            crossHairX = (float)Math.cos((double)hue) * -distance;
+            crossHairY = (float)Math.sin((double)hue) * -distance;
+
         }
 
         /**
@@ -140,7 +221,7 @@ public class ColorWheelDialog extends Dialog {
          *
          * @param canvas to draw on
          */
-        public void drawCircle(Canvas canvas) {
+        private void drawCircle(Canvas canvas) {
             wheelColor.setStrokeWidth(10);
             wheelColor.setStyle(Paint.Style.FILL_AND_STROKE);
 
@@ -158,6 +239,7 @@ public class ColorWheelDialog extends Dialog {
 
                     wheelColor.setColor(getColor(hue, (float)saturation, 1));
                     canvas.drawRect(x, y, x + 10, y + 10, wheelColor);
+
                 }
             }
 
@@ -173,7 +255,7 @@ public class ColorWheelDialog extends Dialog {
          *
          * @param canvas to draw on
          */
-        public void drawCrossHair(Canvas canvas){
+        private void drawCrossHair(Canvas canvas){
             crossHairColor.setColor(Color.LTGRAY);
             crossHairColor.setStyle(Paint.Style.FILL);
             crossHairColor.setStrokeWidth(5);
@@ -189,18 +271,36 @@ public class ColorWheelDialog extends Dialog {
             canvas.drawCircle(crossHairX, crossHairY, 10, crossHairColor);
         }
 
-        public void drawRecentColors(Canvas canvas){
-            float x = radius * -1.25f;
-            float y = radius * -1.25f;
-            float width = radius / 10;
-            float height = radius / 10;
+        /**
+         * Draws the most recently used colors
+         *
+         * @param canvas to draw on
+         */
+        private void drawRecentColors(Canvas canvas){
+            int width = radius / 6;
+            int height = radius / 6;
+            int x = -radius;
+            int y = radius + height;
 
             for(int i = 0; i < recentColors.length; i++){
-                recentColor.setStrokeWidth(20);
+                recentColor.setStrokeWidth(10);
                 recentColor.setStyle(Paint.Style.FILL);
                 recentColor.setColor(recentColors[i]);
-                canvas.drawRect(new Rect((int)x * i + 100, (int)y, (int)width * i, (int)height), recentColor);
+                x = -radius + (width * 2 * i);
+                canvas.drawRect(new Rect(x, y, x + width, y + height), recentColor);
             }
+        }
+
+        /**
+         * Saves the recent colors so they can be accessed when opened again
+         */
+        private void saveRecentColors(){
+            SharedPreferences.Editor editor = getContext().getSharedPreferences(COLOR_DIALOG_PREF_NAME, Context.MODE_PRIVATE).edit();
+            editor.putInt(SAVED_RECENT_COLOR_LENGTH, recentColors.length);
+            for(int i = 0; i < recentColors.length; i++){
+                editor.putInt(SAVED_RECENT_COLOR_RETRIEVE_ + i, recentColors[i]);
+            }
+            editor.apply();
         }
 
         /**
@@ -211,7 +311,7 @@ public class ColorWheelDialog extends Dialog {
          *
          * @return the distance the vector goes
          */
-        public float getDistance(float x, float y){
+        private float getDistance(float x, float y){
             return (float)Math.sqrt((x * x) + (y * y));
         }
 
@@ -223,7 +323,7 @@ public class ColorWheelDialog extends Dialog {
          *
          * @return angle of a given point in degrees
          */
-        public float getAngle(float x, float y){
+        private float getAngle(float x, float y){
             double angle = Math.atan2(y, x);
             return (float) (((angle + Math.PI) / (2 * Math.PI)) * 360);
         }
@@ -237,7 +337,7 @@ public class ColorWheelDialog extends Dialog {
          * @param value      always 1 for now
          * @return the decimal value of a color
          */
-        public int getColor(float hue, float saturation, float value) {
+        private int getColor(float hue, float saturation, float value) {
             // Calculate the values to assign
             float chroma = value * saturation;
 
